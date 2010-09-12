@@ -10,7 +10,7 @@ enum PState {
    PSleep;
 }
 
-typedef ContT = Void -> Void;
+typedef ContT = Dynamic;
 
 typedef PidT = Int;
 
@@ -19,7 +19,10 @@ typedef ProcEntry = {
    var state: PState;
    
    // continuation function to call next
+   // and its arguments
+   var cobj: Dynamic;
    var cont: ContT;
+   var cargs: Array<Dynamic>;
 
    // optional name of the process (??? mapped opt)
    var name: String;
@@ -49,13 +52,15 @@ class M {
       proc_num = 0;
    }
 
-   inline function emptyEntry(f: ContT, name: String) {
-      return {state: PNew, cont: f, name: name, hpid: 0};
+   inline function emptyEntry(cobj: Dynamic, f: ContT, args: Array<Dynamic>, name: String) {
+      return {state: PNew, cobj: cobj, cont: f, cargs: args, name: name, hpid: 0};
    }
 
-   inline function resetEntry(e: ProcEntry, f: ContT, name: String) {
+   inline function resetEntry(e: ProcEntry, cobj: Dynamic, f: ContT, args: Array<Dynamic>, name: String) {
       e.state = PNew;
+      e.cobj = cobj;
       e.cont = f;
+      e.cargs = args;
       e.name = name;
 
       e.hpid++;
@@ -65,7 +70,7 @@ class M {
       }
    }
 
-   function newLPid(f: ContT, name: String): Int {
+   function newLPid(cobj: Dynamic, f: ContT, args: Array<Dynamic>, name: String): Int {
       var new_lpid = if (free_lpids.isEmpty()) {
          // we have to extend the pool
          #if POOL_MAX
@@ -74,12 +79,12 @@ class M {
          }
          #end
 
-         pool.push(emptyEntry(f, name));
+         pool.push(emptyEntry(cobj, f, args, name));
          pool.length - 1;
       }
       else {
          var lpid = free_lpids.pop();
-         resetEntry(pool[lpid], f, name);
+         resetEntry(pool[lpid], cobj, f, args, name);
          lpid;
       };
 
@@ -97,8 +102,12 @@ class M {
       return (hpid << 16) | lpid;
    }
 
-   public function spawn(cont: ContT, ?name: String): PidT {
-      var lpid = newLPid(cont, name);
+   public function spawn(cobj: Dynamic, cont: ContT, ?args: Array<Dynamic>, ?name: String): PidT {
+      if (args == null) {
+         args = [];
+      }
+
+      var lpid = newLPid(cobj, cont, args, name);
       var p = pool[lpid];
 
       #if DEBUG_TRACES
@@ -113,7 +122,9 @@ class M {
       trace("terminating", LOG_SCHED);
       #end
 
+      act_p.cobj = null;
       act_p.cont = null;
+      act_p.cargs = null;
       act_p = null;
       active_lpids.mark_unlink();
       free_lpids.add(cur_lpid);
@@ -160,7 +171,7 @@ class M {
 
             case PRun:
                p_did_yield = false;
-               act_p.cont();
+               Reflect.callMethod(act_p.cobj, act_p.cont, act_p.cargs);
                
                if (!p_did_yield) {
                   terminate_current();
@@ -178,8 +189,13 @@ class M {
 
    }
 
-   public function yield(cont: ContT) {
+   public function yield(cont: ContT, ?cargs: Array<Dynamic>) {
+      if (cargs == null) {
+         cargs = [];
+      }
+
       act_p.cont = cont;
+      act_p.cargs = cargs;
       p_did_yield = true;
    }
 
