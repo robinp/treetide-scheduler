@@ -101,6 +101,10 @@ class Test {
 
       t1 = T(); trace(testname + ": " + (t1 - t0));
 
+      #if IGRAPH
+      Graph.g.addLine();
+      #end 
+
       return M.m.yield(next_test);
 
    }
@@ -146,6 +150,7 @@ class Test {
    }
 
    static function main() {
+
       M.m.setTrace();
       M.m.setFps(Std.int(flash.Lib.current.stage.frameRate));
 
@@ -159,6 +164,10 @@ class Test {
 
          M.m.spawn(a, a.run);
       }
+
+      #if IGRAPH
+      flash.Lib.current.addChild(Graph.g);
+      #end
 
       M.m.spawn(Test, test_start);
       M.m.start();

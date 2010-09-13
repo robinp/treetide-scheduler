@@ -67,7 +67,11 @@ class M {
       act_f_start = 0;
 
       setFps(30);
-      
+ 
+      #if ISTAT
+      frame_count = 0;
+      #end
+
       proc_num = 0;
    }
 
@@ -147,6 +151,10 @@ class M {
       trace("spawn " + pidString(p, lpid), LOG_SCHED);
       #end
 
+      #if ISTAT
+      proc_spawned++;
+      #end
+
       return fullPid(p.hpid, lpid);
    }
 
@@ -213,7 +221,7 @@ class M {
 
       f_delta = act_f_start - last_f_start;
       var cur_overhead = f_delta - ideal_frame_delta;
-      
+
       // adjust expected overhead
       render_overhead = Std.int(0.9 * render_overhead + 0.1 * cur_overhead);
       
@@ -223,19 +231,31 @@ class M {
       f_shed_end = act_f_start + target_frame_delta;
 
       run();
+
       #if ISTAT 
-      trace("frame stat:"
-            + " f_start=" + act_f_start
-            + " now=" + getT() 
-            + " f_shed_end=" + f_shed_end 
-            + " cycles=" + run_cycles
-      );
+      var now = getT();
+      #if IGRAPH
+      Graph.g.addPoint(now, render_overhead, Graph.G_OVERHEAD);
+      Graph.g.addPoint(now, target_frame_delta, Graph.G_TARGET_DELTA);
+      Graph.g.addPoint(now, proc_num * 0.01, Graph.G_PCOUNT);
+      #else
+      if (frame_count++ % 300 == 0)
+         trace("frame stat:"
+               + " f_start=" + act_f_start
+               + " now=" + now
+               + " f_shed_end=" + f_shed_end 
+               + " cycles=" + run_cycles
+         );
+      #end
       #end
    }
 
    function run() {
 
-      #if ISTAT run_cycles = 0; #end
+      #if ISTAT 
+      run_cycles = 0; 
+      proc_spawned = 0;
+      #end
 
       var c = 0;
       var c_val = 20;
@@ -292,6 +312,12 @@ class M {
          Lib.current.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
       }
 
+      #if ISTAT
+      #if IGRAPH
+      Graph.g.addPoint(getT(), c * 0.01, Graph.G_SWITCHES);
+      Graph.g.addPoint(getT(), proc_spawned * 0.01, Graph.G_SPAWNED);
+      #end
+      #end
    }
 
    // Quite inaccurate timer, for frame-skip purposes.
@@ -400,6 +426,8 @@ class M {
    // ----- internal statistics -----
 
    var run_cycles: Int;
+   var frame_count: UInt;
+   var proc_spawned: Int;
    #end
 
    // ----- constants -----
