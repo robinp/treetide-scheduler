@@ -1,21 +1,37 @@
 import Sched;
 
-class A {
+class SimpleAnim extends flash.display.Sprite{
    public function new() {
-      b = 33;
+      super();
+      r = 20 + Math.random() * 40;
+      spd = 1.0;
+      rot = 0.0;
+      col = Std.random(0xffffff);
+      last_t = 0;
    }
 
-   public static function trace_a1() {
-      trace("a1");
+   public function run() {
+      var t = M.m.getFrameT();
+      var dt = t - last_t; 
+      last_t = t;
+
+      rot += spd * dt / 1000.0;
+      var x = Math.cos(rot);
+      var y = Math.sin(rot);
+
+      graphics.clear();
+      graphics.beginFill(col);
+      graphics.drawCircle(r*x, r*y, 20);
+
+      return M.m.sleep(0, run);
    }
 
-   public function trace_a2() {
-      trace("a2");
-      trace("b: " + b);
-      trace("this: " + this);
-   }
+   var r: Float;
+   var spd: Float;
+   var col: UInt;
 
-   var b: Int;
+   var rot: Float;
+   var last_t: Int;
 }
 
 class Test {
@@ -68,70 +84,85 @@ class Test {
    }
 
 
+   // ----- test controller -----
+
+   static var anims = 10;
+
+   static var loopsize = 10000;
+   static var t0: Int;
+   static var t1: Int;
+   static var testname: String;
+ 
+   static function test_show_result(next_test: Void -> Void) {
+      // until no messages, this hack is required
+
+      if (M.m.getProcCount() != 1 + anims) 
+         return M.m.yield(test_show_result, [next_test]);
+
+      t1 = T(); trace(testname + ": " + (t1 - t0));
+
+      return M.m.yield(next_test);
+
+   }
+
+   static function test_spawner(
+         tname: String, 
+         tfun: Dynamic, 
+         ?targs: Array<Dynamic>) {
+
+      testname = tname;
+
+      for (i in 0...loopsize)
+         M.m.spawn(Test, tfun, targs);
+
+      t0 = T(); 
+   }
+
+   static function test_start() { 
+      test_spawner("********** dummy loop", dummy);
+      M.m.yield(test_show_result, [test_simple_add]);
+   }
+ 
+   static function test_simple_add() { 
+      test_spawner("simple_add loop", simple_add);
+      M.m.yield(test_show_result, [test_fact2]);
+   }
+ 
+   static function test_fact2() { 
+      test_spawner("fact2 loop", fact2, [10, 1]);
+      M.m.yield(test_show_result, [test_fact3]);
+   }
+  
+   static function test_fact3() { 
+      test_spawner("fact3 loop", fact3, [10, 1]);
+      M.m.yield(test_show_result, 
+            [test_start]
+            //[test_finish]
+      );
+   }
+
+   static function test_finish() {
+      trace("testing finished");
+   }
+
    static function main() {
       M.m.setTrace();
-
-      var t0: Int, t1: Int;
-      var testname: String;
-
-      var loopsize = 100;
-
-      var a = new A();
-      Reflect.callMethod(null, trace_x, null);
-      Reflect.callMethod(null, A.trace_a1, null);
-      Reflect.callMethod(null, a.trace_a2, null);
+      M.m.setFps(Std.int(flash.Lib.current.stage.frameRate));
 
       trace("loopsize: " + loopsize);
 
-      // ---
+      for (i in 0...anims) {
+         var a = new SimpleAnim();
+         flash.Lib.current.addChild(a);
+         a.x = Std.random(640);
+         a.y = Std.random(480);
 
-      testname = "dummy loop";
+         M.m.spawn(a, a.run);
+      }
 
-      for (i in 0...loopsize)
-         M.m.spawn(Test, dummy);
+      M.m.spawn(Test, test_start);
+      M.m.start();
 
-      t0 = T(); M.m.start();
-      t1 = T(); trace(testname + ": " + (t1 - t0));
-      
-      // --- 
-      
-      testname = "simple_add loop";
-
-      for (i in 0...loopsize)
-         M.m.spawn(Test, simple_add);
-
-      t0 = T(); M.m.start();
-      t1 = T(); trace(testname + ": " + (t1 - t0));
-
-      // ---
-
-      testname = "fact loop";
-
-      for (i in 0...loopsize)
-         M.m.spawn(Test, function() fact(10, 1));
-      
-      t0 = T(); M.m.start();
-      t1 = T(); trace(testname + ": " + (t1 - t0)); 
- 
-      // ---
-
-      testname = "fact2 loop";
-
-      for (i in 0...loopsize)
-         M.m.spawn(Test, fact2, [10, 1]);
-      
-      t0 = T(); M.m.start();
-      t1 = T(); trace(testname + ": " + (t1 - t0));
- 
-      // ---
-
-      testname = "fact3 loop";
-
-      for (i in 0...loopsize)
-         M.m.spawn(Test, fact3, [10, 1]);
-      
-      t0 = T(); M.m.start();
-      t1 = T(); trace(testname + ": " + (t1 - t0));
 
    }
 }

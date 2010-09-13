@@ -6,7 +6,7 @@ import haxe.FastList;
 // This makes spawning a bit more complicated (has to spawn after next),
 // but makes unlinking cheap (unlink next).
 
-class CGList<T> {
+class CGList<T> implements haxe.rtti.Generic {
 
    public function new(guard: T) {
       act = new haxe.FastCell<T>(guard, null);
