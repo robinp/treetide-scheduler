@@ -14,6 +14,8 @@ enum PState {
    PNew;
    PRun;
    PSleep;
+   PMWait;
+   PTerm;
 }
 
 typedef ContT = Dynamic;
@@ -44,6 +46,9 @@ typedef ProcEntry = {
    //    
    var timer: Int;
 
+   // message queue
+   var mq: MList<Dynamic>;
+
    // TODO:
    // wait for message
    // waiting for pids, etc
@@ -73,6 +78,7 @@ class M {
       #end
 
       proc_num = 0;
+      run_proc_num = 0;
    }
 
    inline function updateTargetDelta() {
@@ -89,7 +95,16 @@ class M {
    }
 
    inline function emptyEntry(cobj: Dynamic, f: ContT, args: Array<Dynamic>, name: String) {
-      return {state: PNew, cobj: cobj, cont: f, cargs: args, name: name, hpid: 0, timer: 0};
+      return {
+         state: PNew, 
+         cobj: cobj, 
+         cont: f, 
+         cargs: args, 
+         name: name, 
+         hpid: 0, 
+         timer: 0,
+         mq: new MList<Dynamic>()
+      };
    }
 
    inline function resetEntry(e: ProcEntry, cobj: Dynamic, f: ContT, args: Array<Dynamic>, name: String) {
@@ -99,6 +114,7 @@ class M {
       e.cargs = args;
       e.name = name;
       // e.timer is not valid in PNew so not reset
+      // e.mq.reinit() is already done at terminate
 
       e.hpid++;
       if (e.hpid == 0x7FFF) {
@@ -126,7 +142,6 @@ class M {
       };
 
       active_lpids.spawn(new_lpid); 
-      proc_num++;
 
       return new_lpid;
    }
@@ -139,6 +154,49 @@ class M {
       return (hpid << 16) | lpid;
    }
 
+   inline function lPid(pid: PidT): Int {
+      return pid & 0xFFFF;
+   }
+   
+   inline function hPid(pid: PidT): Int {
+      return pid >>> 16;
+   }
+
+   function pState(p: ProcEntry, new_state: PState) {
+      //trace("from " + p.state + " to " + new_state);
+      switch (new_state) {
+         case PNew:
+            proc_num++;
+            run_proc_num++;
+
+         case PRun:
+            switch (p.state) {
+               case PNew:
+                  // pass
+               default:
+                  run_proc_num++;
+            }
+
+         case PSleep, PMWait:
+            #if !NDEBUG
+            if (!Type.enumEq(p.state, PRun)) {
+               throw "! ~PRun -> PSleep/PMWait";
+            }
+            #end
+            run_proc_num--;
+
+         case PTerm:
+            #if !NDEBUG
+            if (!Type.enumEq(p.state, PRun)) {
+               throw "! ~PRun -> PTerm";
+            }
+            #end
+            proc_num--;
+            run_proc_num--;
+      } 
+      p.state = new_state;
+   }
+
    public function spawn(cobj: Dynamic, cont: ContT, ?args: Array<Dynamic>, ?name: String): PidT {
       if (args == null) {
          args = [];
@@ -146,6 +204,8 @@ class M {
 
       var lpid = newLPid(cobj, cont, args, name);
       var p = pool[lpid];
+
+      pState(p, PNew);
 
       #if DEBUG_TRACES
       trace("spawn " + pidString(p, lpid), LOG_SCHED);
@@ -172,13 +232,24 @@ class M {
       trace("terminating", LOG_SCHED);
       #end
 
+      pState(act_p, PTerm);
       act_p.cobj = null;
       act_p.cont = null;
       act_p.cargs = null;
+      act_p.name = null;
+      act_p.mq.reinit();
       act_p = null;
       active_lpids.mark_unlink();
       free_lpids.add(cur_lpid);
-      proc_num--;
+      // don't null the pool, since it will be reused
+   }
+
+   function pidStringRaw(pid: PidT) {
+      return "<"  
+         + StringTools.hex(lPid(pid)) 
+         + "." 
+         + StringTools.hex(hPid(pid))
+         + ">";
    }
 
    function pidString(?p: ProcEntry, ?lpid: Int, with_name = true) {
@@ -242,9 +313,10 @@ class M {
       if (frame_count++ % 300 == 0)
          trace("frame stat:"
                + " f_start=" + act_f_start
-               + " now=" + now
-               + " f_shed_end=" + f_shed_end 
+               + " end_acc=" + (now - f_shed_end)
                + " cycles=" + run_cycles
+               + " proc=" + proc_num
+               + " run_proc=" + run_proc_num
          );
       #end
       #end
@@ -253,17 +325,17 @@ class M {
    function run() {
 
       #if ISTAT 
-      run_cycles = 0; 
       proc_spawned = 0;
       #end
 
+      run_cycles = 0; 
       var c = 0;
       var c_val = 20;
       var check: Int = c_val;
 
-      while 
-         //(run_cycles < 10) { 
-         (check != 0 || (getT() < f_shed_end)) { 
+      while (
+          (run_cycles < 2 || run_proc_num > 0) && 
+          (check != 0 || getT() < f_shed_end) ) { 
  
          if (--check == -1) {
             check = c_val;
@@ -273,7 +345,7 @@ class M {
          cur_lpid = active_lpids.next();
 
          if (cur_lpid == -1) {
-            #if ISTAT run_cycles++; #end
+            run_cycles++;
             continue;
          }
 
@@ -284,7 +356,7 @@ class M {
          switch (act_p.state) {
             case PNew:
                // will run in next cycle
-               act_p.state = PRun;
+               pState(act_p, PRun);
       
                #if DEBUG_TRACES
                trace("ready", LOG_SCHED);
@@ -295,11 +367,32 @@ class M {
 
             case PSleep:
                if (act_f_start > act_p.timer) {
-                  act_p.state = PRun;
+                  pState(act_p, PRun);
 
                   run_current();
                }
 
+            case PMWait:
+               if (act_p.mq.peek_next() != null) {
+                  p_did_refuse = false;
+                  pState(act_p, PRun);
+                  run_current();
+
+                  if (p_did_yield) {
+                     if (p_did_refuse) {
+                        act_p.mq.advance();
+                        pState(act_p, PMWait);
+                     }
+                     else {
+                        act_p.mq.unlink();
+                        act_p.mq.rewind();
+                     }
+                  }
+                  // else was terminated
+               }
+
+            case PTerm:
+               throw "! PTerm scheduled for running";
             
          }
          
@@ -328,7 +421,7 @@ class M {
    //
    // Call with msec=0 for sleeping until next frame
    public function sleep(msec: Int, cont: ContT, ?cargs: Array<Dynamic>) {
-      act_p.state = PSleep;
+      pState(act_p, PSleep);
       act_p.timer = act_f_start + msec;
 
       yield(cont, cargs);
@@ -347,6 +440,43 @@ class M {
       act_p.cont = cont;
       act_p.cargs = cargs;
       p_did_yield = true;
+   }
+
+   public function nop(): Void {
+   }
+
+   public function recv(cont: ContT, ?cargs: Array<Dynamic>): Void {
+      pState(act_p, PMWait);
+
+      yield(cont, cargs);
+   }
+
+   public function read() {
+      return act_p.mq.peek_next();
+   }
+
+   public function refuse(): Void {
+      p_did_refuse = true;
+
+      yield(act_p.cont, act_p.cargs);
+   }
+
+   public function msg(pid: PidT, m: Dynamic): Void {
+      var lpid = lPid(pid);
+      var target = pool[lpid];
+
+      if (target == null || target.cont == null || target.hpid != hPid(pid)) {
+         #if DEBUG_TRACES
+         trace("target " + pidStringRaw(pid) + " not exists", LOG_SCHED);
+         #end
+         return;
+      }
+
+      target.mq.add(m);
+   }
+
+   public function getMyPid() {
+      return fullPid(act_p.hpid, cur_lpid);
    }
 
    public function getProcCount() {
@@ -377,8 +507,12 @@ class M {
    // the process pool
    var pool: Array<ProcEntry>;
 
-   // count of running processes
+   // count of active processes
    var proc_num: Int;
+
+   // count of processes in PNew or PRun
+   // (TODO: separate CGLists for sleeping/mwaiting processes)
+   var run_proc_num: Int;
 
    // currently running lpids;
    var active_lpids: CGList<Int>;
@@ -386,6 +520,9 @@ class M {
    // currently free lpids, which were used
    // sometime in the past
    var free_lpids: List<Int>;
+
+   // cycles made in the scheduler loop in the current frame
+   var run_cycles: Int;
 
    // ----- timing state -----
 
@@ -422,10 +559,12 @@ class M {
    // did the actual process return control gracefully?
    var p_did_yield: Bool;
 
+   // did the actual process refuse the message?
+   var p_did_refuse: Bool;
+
    #if ISTAT
    // ----- internal statistics -----
 
-   var run_cycles: Int;
    var frame_count: UInt;
    var proc_spawned: Int;
    #end
