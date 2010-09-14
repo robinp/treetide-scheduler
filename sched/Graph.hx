@@ -1,3 +1,5 @@
+package sched;
+
 class Graph extends flash.display.Sprite {
 
    public static var g(getGraph, null): Graph;

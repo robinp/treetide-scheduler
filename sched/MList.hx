@@ -1,3 +1,5 @@
+package sched;
+
 import haxe.FastList;
 
 // Simple queue for messages of a process

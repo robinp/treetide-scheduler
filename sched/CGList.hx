@@ -1,3 +1,5 @@
+package sched;
+
 import haxe.FastList;
 
 // Cyclic list with guard

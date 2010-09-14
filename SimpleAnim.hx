@@ -1,4 +1,4 @@
-import Sched;
+import sched.Sched;
 
 class SimpleAnim extends flash.display.Sprite{
 
