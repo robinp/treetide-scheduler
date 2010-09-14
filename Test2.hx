@@ -20,7 +20,8 @@ class Test2 {
 
       return if (M.m.peek() == "tyuk") {
          trace("tyuk!!");
-         M.m.terminate();
+         //M.m.terminate();
+         throw new flash.errors.Error("tyuk");
       }
       else M.m.recv(parent_recv);
    }

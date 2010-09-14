@@ -222,7 +222,18 @@ class M {
 
    inline function run_current() {
       p_did_yield = false;
-      Reflect.callMethod(act_p.cobj, act_p.cont, act_p.cargs);
+
+      try {
+         Reflect.callMethod(act_p.cobj, act_p.cont, act_p.cargs);
+      }
+      catch (e: Dynamic) {
+         trace("! process death, reason: " + Std.string(e) 
+               + "\nException stack:\n" + haxe.Stack.toString(haxe.Stack.exceptionStack()) 
+               + "\nCall stack:\n" + haxe.Stack.toString(haxe.Stack.callStack()) );
+
+         // TODO more sophisticated handling
+         p_did_yield = false;
+      }
       
       if (!p_did_yield) {
          terminate_current();
