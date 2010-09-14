@@ -384,8 +384,7 @@ class M {
                         pState(act_p, PMWait);
                      }
                      else {
-                        act_p.mq.unlink();
-                        act_p.mq.rewind();
+                        act_p.mq.consume();
                      }
                   }
                   // else was terminated
@@ -413,6 +412,10 @@ class M {
       #end
    }
 
+   //
+   // ---------- USER PROCESS API -----------
+   //
+
    // Quite inaccurate timer, for frame-skip purposes.
    //
    // msec is offset not from the current time, but from the start of
@@ -427,6 +430,7 @@ class M {
       yield(cont, cargs);
    }
 
+   // Return with yield() to give up control
    public function yield(cont: ContT, ?cargs: Array<Dynamic>) {
       if (cont == null) {
          /// ??? is this required
@@ -442,24 +446,53 @@ class M {
       p_did_yield = true;
    }
 
-   public function nop(): Void {
+   // Convenience return function for explicit termination
+   public function terminate(): Void {
    }
 
+   // Return with recv() to enter message waiting state
    public function recv(cont: ContT, ?cargs: Array<Dynamic>): Void {
       pState(act_p, PMWait);
 
       yield(cont, cargs);
    }
 
-   public function read() {
+   // Peeks at the current message of the inbox, but
+   // does not remove it. Returns null if no message.
+   public function peek() {
       return act_p.mq.peek_next();
    }
 
+   // Consumes and returns the current message, and rewinds
+   // the inbox. If no message is available, returns null
+   // and does not rewind.
+   public function consume() {
+      var m = act_p.mq.peek_next();
+      return if (m == null) {
+         null;
+      } 
+      else {
+         act_p.mq.consume();
+         m;
+      }
+   }
+
+   // Clears the inbox
+   public function flush() {
+      act_p.mq.flush();
+   }
+
+   // Return from a message handler continuation with refuse() if
+   // the received message is not the expected. Advances the inbox.
    public function refuse(): Void {
       p_did_refuse = true;
 
       yield(act_p.cont, act_p.cargs);
    }
+
+   // Send a message "m" to "pid"
+   // If type(pid)=PidT: never fails
+   // If type(pid)=NameT: fails if non-existent name
 
    public function msg(pid: PidT, m: Dynamic): Void {
       var lpid = lPid(pid);

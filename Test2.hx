@@ -16,11 +16,11 @@ class Test2 {
    }
 
    static function parent_recv() {
-      trace("received back: " + M.m.read());
+      trace("received back: " + M.m.peek());
 
-      return if (M.m.read() == "tyuk") {
+      return if (M.m.peek() == "tyuk") {
          trace("tyuk!!");
-         M.m.nop();
+         M.m.terminate();
       }
       else M.m.recv(parent_recv);
    }
@@ -30,7 +30,7 @@ class Test2 {
    }
 
    static function child_recv(p_pid: PidT) {
-      var m = M.m.read();
+      var m = M.m.peek();
       return switch (m) {
          case "alma": 
             trace("nem szeretem az almat");

@@ -51,9 +51,10 @@ class MList<T> {
       prev = next_cell();
    }
 
+
    // The process can also accept the message, so it
-   // gets consumed and unlinked
-   public function unlink() {
+   // gets unlinked
+   inline function unlink() {
       if (prev == null) {
          // unlink head
          head = head.next;
@@ -73,8 +74,14 @@ class MList<T> {
    // After accepting a message, the queue
    // position should be rewind, so that new
    // PMWait rechecks already queued messages
-   public function rewind() {
+   inline function rewind() {
       prev = null;
+   }
+ 
+   // consumes the current message
+   public function consume() {
+      unlink();
+      rewind();
    }
 
    // ----- members -----
