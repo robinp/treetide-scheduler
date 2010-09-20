@@ -34,6 +34,10 @@ typedef ProcEntry = {
    var cont: ContT;
    var cargs: Array<Dynamic>;
 
+   // continuation on special timeout (from PMWait)
+   // it is called with the same arguments as the default continuation
+   var timeout_cont: ContT;
+
    // optional name of the process (??? mapped opt)
    var name: String;
 
@@ -100,7 +104,8 @@ class M {
       return {
          state: PNew, 
          cobj: cobj, 
-         cont: f, 
+         cont: f,
+         timeout_cont: null,
          cargs: args, 
          name: name, 
          hpid: 0, 
@@ -113,6 +118,7 @@ class M {
       e.state = PNew;
       e.cobj = cobj;
       e.cont = f;
+      e.timeout_cont = null;
       e.cargs = args;
       e.name = name;
       // e.timer is not valid in PNew so not reset
@@ -248,6 +254,7 @@ class M {
       pState(act_p, PTerm);
       act_p.cobj = null;
       act_p.cont = null;
+      act_p.timeout_cont = null;
       act_p.cargs = null;
       act_p.name = null;
       act_p.mq.reinit();
@@ -295,7 +302,12 @@ class M {
       return f_delta;
    }
 
-   inline public function getFrameT() {
+   inline function getFrameT() {
+      return act_f_start;
+   }
+
+   // return the time as visible to the user
+   inline public function getUserT() {
       return act_f_start;
    }
 
@@ -451,8 +463,17 @@ class M {
    }
 
    // Return with recv() to enter message waiting state
-   public function recv(cont: ContT, ?cargs: Array<Dynamic>): Void {
+   public function recv(cont: ContT, ?cargs: Array<Dynamic>, 
+         ?timeout: Int, ?to_cont: ContT): Void {
       pState(act_p, PMWait);
+
+      if (timeout == null) {
+         act_p.timer = NO_TIMER;
+      }
+      else {
+         act_p.timer = timeout;
+         act_p.timeout_cont = to_cont;
+      }
 
       yield(cont, cargs);
    }
@@ -606,7 +627,10 @@ class M {
 
    // log is traced by scheduler
    inline static var LOG_SCHED = 0;
-   
+ 
+   // no timer set
+   inline static var NO_TIMER = -1;
+
    // number of maximum concurrent processes
    inline static var MAX_PROC = 100000;
 

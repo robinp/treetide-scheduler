@@ -16,14 +16,14 @@ class SimpleAnim extends flash.display.Sprite{
    public function new() {
       super();
       r = 20 + Math.random() * 40;
-      spd = 1.0;
+      spd = 1.0 + Math.random() * 0.5;
       rot = 0.0;
       col = Std.random(0xffffff);
       last_t = 0;
    }
 
    public function run() {
-      var t = M.m.getFrameT();
+      var t = M.m.getUserT();
       var dt = t - last_t; 
       last_t = t;
 

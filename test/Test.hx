@@ -127,10 +127,6 @@ class Test {
          M.m.spawn(a, a.run);
       }
 
-      #if IGRAPH
-      flash.Lib.current.addChild(Graph.g);
-      #end
-
       M.m.spawn(Test, test_start);
       M.m.start();
 

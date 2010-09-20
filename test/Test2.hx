@@ -2,7 +2,7 @@ import com.treetide.sched.Sched;
 
 class Test2 {
 
-   static var anims = 1;
+   static var anims = 1000;
    static var loopsize = 10000;
    
    static function test_start() { 
@@ -34,11 +34,11 @@ class Test2 {
       var m = M.m.peek();
       return switch (m) {
          case "alma": 
-            trace("nem szeretem az almat");
+            trace("i don't like apples");
             M.m.refuse();
 
          default:
-            trace("ezt szeretem: " + m);
+            trace("i do like: " + m);
             M.m.msg(p_pid, m);
             M.m.recv(child_recv, [p_pid]);
       }
@@ -53,10 +53,6 @@ class Test2 {
       trace("loopsize: " + loopsize);
       SimpleAnim.start(anims);
   
-      #if IGRAPH
-      flash.Lib.current.addChild(Graph.g);
-      #end
-
       M.m.spawn(Test2, test_start);
       M.m.start();
 
