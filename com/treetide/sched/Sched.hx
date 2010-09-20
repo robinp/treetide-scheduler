@@ -1,4 +1,4 @@
-package sched;
+package com.treetide.sched;
 
 // Defines:
 //
@@ -318,11 +318,6 @@ class M {
 
       #if ISTAT 
       var now = getT();
-      #if IGRAPH
-      Graph.g.addPoint(now, render_overhead, Graph.G_OVERHEAD);
-      Graph.g.addPoint(now, target_frame_delta, Graph.G_TARGET_DELTA);
-      Graph.g.addPoint(now, proc_num * 0.01, Graph.G_PCOUNT);
-      #else
       if (frame_count++ % 300 == 0)
          trace("frame stat:"
                + " f_start=" + act_f_start
@@ -331,7 +326,6 @@ class M {
                + " proc=" + proc_num
                + " run_proc=" + run_proc_num
          );
-      #end
       #end
    }
 
@@ -416,13 +410,6 @@ class M {
          trace("no more processes to run", LOG_SCHED);
          Lib.current.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
       }
-
-      #if ISTAT
-      #if IGRAPH
-      Graph.g.addPoint(getT(), c * 0.01, Graph.G_SWITCHES);
-      Graph.g.addPoint(getT(), proc_spawned * 0.01, Graph.G_SPAWNED);
-      #end
-      #end
    }
 
    //

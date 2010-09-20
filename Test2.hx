@@ -1,4 +1,4 @@
-import sched.Sched;
+import com.treetide.sched.Sched;
 
 class Test2 {
 
