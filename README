@@ -1,0 +1,21 @@
+TreeTide Scheduler
+------------------
+
+Aim:
+
+   A cooperative multi-process scheduler for Haxe/flash, making it easy to
+      - run processes or tasks in parallel
+      - apply Erlang-like message-passing
+
+Usage:
+
+   See the test examples. Not overcommented yet, but the Sched.hx source
+   is quite explanatory.
+
+   More and better examples to come.
+
+   Message reception works best with hxpattern's gswitch()
+
+Author:
+
+   Robin Palotai / TreeTide
