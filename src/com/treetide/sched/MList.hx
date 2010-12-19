@@ -19,6 +19,17 @@ class MList<T> {
       reinit();
    }
 
+   public function dump(sep = " --> ") {
+      var s = "";
+      var p = head;
+      while (p != null) {
+         s += Std.string(p.elt) + sep;
+         p = p.next;
+      }
+      s += "null";
+      return s;
+   }
+
    // When a new message is sent, it is
    // appended to the list
    public function add(e: T) {
@@ -50,7 +61,8 @@ class MList<T> {
    // The process can refuse to accept the message yet,
    // so the current pointer is advanced
    public function advance() {
-      prev = next_cell();
+      var next = next_cell();
+      prev = next;
    }
 
 
@@ -66,9 +78,25 @@ class MList<T> {
       }
       else {
          // unlink current
-         prev.next = prev.next.next;
-         if (prev.next == null) {
-            tail = null;
+         if (prev == null) {
+            // deleting current head
+
+            if (head == tail) {
+               // list becomes empty
+               tail = null;
+            }
+
+            head = head.next;
+         }
+         else {
+            if (tail == prev.next) {
+               // if current is the tail, then 
+               // tail becomes the previous 
+               // after the unlink
+               tail = prev;
+            }
+
+            prev.next = prev.next.next;
          }
       }
    }
@@ -76,7 +104,7 @@ class MList<T> {
    // After accepting a message, the queue
    // position should be rewind, so that new
    // PMWait rechecks already queued messages
-   inline function rewind() {
+   inline public function rewind() {
       prev = null;
    }
  
