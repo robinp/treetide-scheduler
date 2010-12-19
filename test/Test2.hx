@@ -2,15 +2,14 @@ import com.treetide.sched.Sched;
 
 class Test2 {
 
-   static var anims = 1000;
-   static var loopsize = 10000;
+   static var anims = 10;
    
    static function test_start() { 
-      var c_pid = M.m.spawn(Test2, child_start, [M.m.getMyPid()], "child");
-      M.m.msg(c_pid, "alma");
-      M.m.msg(c_pid, "korte");
-      M.m.msg(c_pid, "csirke");
-      M.m.msg(c_pid, "tyuk");
+      var c_pid = M.m.spawn(Test2, child_start, [M.m.pid()], "child");
+      M.m.msg(c_pid, "apple");
+      M.m.msg(c_pid, "pear");
+      M.m.msg(c_pid, "chicken");
+      M.m.msg(c_pid, "hen");
       
       return M.m.recv(parent_recv);
    }
@@ -18,12 +17,11 @@ class Test2 {
    static function parent_recv() {
       trace("received back: " + M.m.peek());
 
-      return if (M.m.peek() == "tyuk") {
-         trace("tyuk!!");
-         //M.m.terminate();
-         throw new flash.errors.Error("tyuk");
+      if (M.m.peek() == "hen") {
+         trace("hen :>.");
       }
-      else M.m.recv(parent_recv);
+      
+      M.m.recv();
    }
 
    static function child_start(p_pid: PidT) {
@@ -33,13 +31,45 @@ class Test2 {
    static function child_recv(p_pid: PidT) {
       var m = M.m.peek();
       return switch (m) {
-         case "alma": 
+         case "apple": 
             trace("i don't like apples");
             M.m.refuse();
 
          default:
             trace("i do like: " + m);
             M.m.msg(p_pid, m);
+
+            if (m == "hen") {
+
+               trace("spawning collection receiver");
+
+               var p = M.m.spawn(null, function () {
+                  if (M.m.peek() != null) {
+                     trace("got: " + M.m.peek());
+                  }
+                  
+                  trace("waiting for more");
+                  M.m.recv();
+               });
+
+               trace("spawning collectors");
+
+               var cp = M.m.spawn(null, com.treetide.sched.lib.Collector.collect(
+                        p, 10, "collected"));
+
+               var fp = M.m.spawn(null, com.treetide.sched.lib.Collector.fold(
+                        p, 10, "", function(acc: String, e: Int) {
+                           return acc + e + ":";
+                        }, "folded"));
+
+               trace("messaging collectors");
+
+               for (i in 0...10) {
+                  M.m.msg(cp, i);
+                  M.m.msg(fp, i);
+               }
+            }
+
             M.m.recv(child_recv, [p_pid]);
       }
 
@@ -50,11 +80,9 @@ class Test2 {
       M.m.setTrace();
       M.m.setFps(Std.int(flash.Lib.current.stage.frameRate));
 
-      trace("loopsize: " + loopsize);
       SimpleAnim.start(anims);
   
       M.m.spawn(Test2, test_start);
       M.m.start();
-
    }
 }

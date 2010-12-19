@@ -1,0 +1,13 @@
+-main Test
+-cp src
+-cp test
+-swf-header 640:480:30:aaaaaa 
+-swf9 bin/test.swf 
+-D TTS_ISTAT 
+--next
+
+-main Test2 
+-cp src
+-cp test
+-swf-header 640:480:30:aaaaaa 
+-swf9 bin/test2.swf

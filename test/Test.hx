@@ -56,16 +56,12 @@ class Test {
    static var testname: String;
  
    static function test_show_result(next_test: Void -> Void) {
-      // until no messages, this hack is required
 
+      // hack, use messages instead
       if (M.m.getProcCount() != 1 + anims) 
          return M.m.yield(test_show_result, [next_test]);
 
       t1 = T(); trace(testname + ": " + (t1 - t0));
-
-      #if IGRAPH
-      Graph.g.addLine();
-      #end 
 
       return M.m.yield(next_test);
 

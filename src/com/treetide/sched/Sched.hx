@@ -1,11 +1,36 @@
+/*
+   Copyright (c) 2010, the haXe Project Contributors
+   All rights reserved.
+
+   Redistribution and use in source and binary forms, with or without
+   modification, are permitted provided that the following conditions are met:
+
+      * Redistributions of source code must retain the above copyright
+        notice, this list of conditions and the following disclaimer.
+
+      * Redistributions in binary form must reproduce the above copyright
+        notice, this list of conditions and the following disclaimer in the
+        documentation and/or other materials provided with the distribution.
+
+   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+   ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+   WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+   DISCLAIMED. IN NO EVENT SHALL THE HAXE PROJECT CONTRIBUTORS BE LIABLE FOR ANY
+   DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+   (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+   LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+   ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+   (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+   SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
 package com.treetide.sched;
 
-// Defines:
+// Accepted compile-time defines
 //
 // NDEBUG - turn off assertions
-// ISTAT - turn on internal statistics collection
-// POOL_MAX - turn on maximum process number checking
-// DEBUG_TRACES - turn on debug traces
+// TTS_ISTAT - turn on internal statistics collection
+// TTS_DEBUG_TRACES - turn on debug traces
 
 #if flash
 import flash.Lib;
@@ -19,6 +44,8 @@ enum ExitStatus {
    ESKilled;
 }
 
+// Process state
+//
 enum PState {
    PNew;
    PRun;
@@ -27,28 +54,52 @@ enum PState {
    PTerm;
 }
 
+// The continuation type, a function taking
+// any number of arguments and returning Void
+//
+// Note: not really a true continuation
+//
 typedef ContT = Dynamic;
 
+// The PID type of processes as visible to the user
+//
+// Currently it is built as (hpid << 16) | (lpid),
+// where both hpid and lpid are 16bits long.
+//
+// - lpid is the process index in the process pool array
+//
+// - hpid is the reuse counter of that pool slot, so
+//   a message won't be delivered to an unintended
+//   process occupying the same slot
+//
+// The internals may change in the future
+//
 typedef PidT = Int;
 
+// Process entry
+//
 typedef ProcEntry = {
-   // process state
    var state: PState;
    
    // continuation function to call next
    // and its arguments
+   // cobj is the call context for reflection
+   //
    var cobj: Dynamic;
    var cont: ContT;
    var cargs: Array<Dynamic>;
 
    // continuation on special timeout (from PMWait)
    // it is called with the same arguments as the default continuation
+   //
    var timeout_cont: ContT;
 
-   // optional name of the process (??? mapped opt)
+   // optional name of the process
+   //
    var name: String;
 
    // high 16 bit of pid (index-reuse counter)
+   //
    var hpid: Int;
 
    // timer variable, used depending on state
@@ -56,18 +107,30 @@ typedef ProcEntry = {
    // PSleep: 
    //    The wake-up time. Will be woken if the 
    //    current frame_start >= timer.
+   //
+   // PMWait:
+   //    Waits for suitable message to arrive. If not arrived when
+   //    frame_start >= timer, the process continues with timeout_cont
    //    
    var timer: Int;
 
    // message queue
+   //
    var mq: MList<Dynamic>;
 
    // TODO:
-   // wait for message
    // waiting for pids, etc
 }
 
+// The scheduler manager
+//
+// M, because it it short (will write this a couple of times)
+// and not S, because M is aesthetically more pleasing ;)
+//
 class M {
+
+   // Singleton accessor
+   //
    public static var m(getM, null): M;
 
    static function getM(): M {
@@ -86,7 +149,7 @@ class M {
 
       setFps(30);
  
-      #if ISTAT
+      #if TTS_ISTAT
       frame_count = 0;
       #end
 
@@ -96,10 +159,15 @@ class M {
       daemons = new IntHash();
    }
 
+   // Calculate how long should our calculations take 
+   // from the total ideal frame time
+   //
    inline function updateTargetDelta() {
       target_frame_delta = ideal_frame_delta - render_overhead;
    }
 
+   // Sets the targeted frame rate of the software
+   //
    public function setFps(fps: Int) {
       ideal_frame_delta = Std.int(1000 / fps);
 
@@ -109,6 +177,14 @@ class M {
       updateTargetDelta();
    }
 
+   // Starts the scheduler
+   //
+   public function start() {
+      Lib.current.addEventListener(Event.ENTER_FRAME, onEnterFrame);
+   }
+
+   // Creates an new process entry
+   //
    inline function emptyEntry(cobj: Dynamic, f: ContT, args: Array<Dynamic>, name: String) {
       return {
          state: PNew, 
@@ -123,6 +199,8 @@ class M {
       };
    }
 
+   // Reinitialized a process entry
+   //
    inline function resetEntry(e: ProcEntry, cobj: Dynamic, f: ContT, args: Array<Dynamic>, name: String) {
       e.state = PNew;
       e.cobj = cobj;
@@ -140,11 +218,13 @@ class M {
       }
    }
 
+   // Retrieves a pool slot for the new process
+   //
    function newLPid(cobj: Dynamic, f: ContT, args: Array<Dynamic>, name: String): Int {
       var new_lpid = if (free_lpids.isEmpty()) {
          // we have to extend the pool
-         #if POOL_MAX
-         if (proc_pool.length == MAX_PROC) {
+         #if !NDEBUG
+         if (pool.length == MAX_PROC) {
             throw "! Maximum number of processes reached (" + MAX_PROC + ")";
          }
          #end
@@ -158,11 +238,20 @@ class M {
          lpid;
       };
 
+      // insert into the active list
+      //
+      // this process will practically execute only on the next cycle,
+      // to avoid starving other processes by a recursive spawn chain
+      //
+      // however there is NO GUARANTEE about execution ordering,
+      // so a user must not count on this
       active_lpids.spawn(new_lpid); 
 
       return new_lpid;
    }
 
+   // assemble the pid from the parts
+   //
    inline function fullPid(hpid: Int, lpid: Int) {
       #if !NDEBUG
       if ((lpid & 0xFFFF) != lpid) 
@@ -179,6 +268,8 @@ class M {
       return pid >>> 16;
    }
 
+   // transit process state
+   //
    function pState(p: ProcEntry, new_state: PState) {
       //trace("from " + p.state + " to " + new_state);
       switch (new_state) {
@@ -214,7 +305,8 @@ class M {
       p.state = new_state;
    }
 
-
+   // continues the current process
+   //
    inline function run_current() {
       p_did_yield = false;
       was_running++;
@@ -232,10 +324,13 @@ class M {
       }
       
       if (!p_did_yield) {
+         // not yielding/sleeping/etc is an implicit termination
          terminate_current();
       }
    }
 
+   // stack trace helper
+   //
    function getStacks() {
       return 
             "\nName: " + (act_p == null ? "<null-proc>" : act_p.name)
@@ -245,8 +340,10 @@ class M {
             + haxe.Stack.toString(haxe.Stack.callStack());
    }
 
+   // terminates and clears the current process
+   //
    function terminate_current() {
-      #if DEBUG_TRACES
+      #if TTS_DEBUG_TRACES
       trace("terminating", LOG_SCHED);
       #end
 
@@ -260,9 +357,14 @@ class M {
       act_p = null;
       active_lpids.mark_unlink();
       free_lpids.add(cur_lpid);
-      // don't null the pool, since it will be reused
+
+      // don't null the pool slot, since
+      // the process entry will be reused
    }
 
+   // string representation of the pid, without process name,
+   // only for tracing purposes (may change)
+   //
    function pidStringRaw(pid: PidT) {
       return "<"  
          + StringTools.hex(lPid(pid)) 
@@ -271,6 +373,11 @@ class M {
          + ">";
    }
 
+   // string representation of the pid of the current process
+   // (or the process identified by the params)
+   //
+   // may change
+   //
    function pidString(?p: ProcEntry, ?lpid: Int, with_name = true) {
       if (p == null) {
          p = act_p;
@@ -289,27 +396,42 @@ class M {
       }) + ">";
    }
 
-   public function start() {
-      Lib.current.addEventListener(Event.ENTER_FRAME, onEnterFrame);
-   }
-
+   // Returns the current timestamp as seconds
+   //
    inline function getT() {
+      #if flash
       return Lib.getTimer();
+      #end
    }
 
+   // Returns the time passed between start of the
+   // last and act frame.
+   //
+   // Users are encouraged to use this method.
+   //
    inline public function getDelta() {
       return f_delta;
    }
 
-   inline function getFrameT() {
-      return act_f_start;
-   }
-
-   // return the time as visible to the user
+   // Return the time as visible to the user. 
+   //
+   // Users are encouraged to use this method
+   // instead of directly calling the platforms timestamp
+   // method, since the Scheduler may be able to freeze
+   // time then for debugging, etc.
+   //
    inline public function getUserT() {
       return act_f_start;
    }
 
+   // Returns the start of the act frame
+   //
+   inline function getFrameT() {
+      return act_f_start;
+   }
+
+   // Main loop function
+   //
    function onEnterFrame(e) {
       last_f_start = act_f_start;
       act_f_start = getT();
@@ -317,17 +439,19 @@ class M {
       f_delta = act_f_start - last_f_start;
       var cur_overhead = f_delta - ideal_frame_delta;
 
-      // adjust expected overhead
+      // adjust expected rendering overhead by simple running averaging
       render_overhead = Std.int(0.9 * render_overhead + 0.1 * cur_overhead);
       
+      // recalculate the time allocated to this calculation batch
       updateTargetDelta();
 
       // set the end of calculations this frame
       f_shed_end = act_f_start + target_frame_delta;
 
+      // run calculation batch
       run();
 
-      #if ISTAT 
+      #if TTS_ISTAT 
       var now = getT();
       if (frame_count++ % 300 == 0)
          trace("frame stat:"
@@ -340,9 +464,19 @@ class M {
       #end
    }
 
+   // Iterates over processes and runs them until the allocated time
+   // is up.
+   //
+   // Only checks time after running a couple of processes, because the
+   // getTimer call is quite costy.
+   //
+   // TODO:
+   //    - improve time checking strategy
+   //    - or enable manual intervention/tuning using api
+   //
    function run() {
 
-      #if ISTAT 
+      #if TTS_ISTAT 
       proc_spawned = 0;
       #end
 
@@ -355,7 +489,7 @@ class M {
       // remaining time check is performed when check == 0
       var check: Int = c_val;
 
-      // run at least once cycle (if there is time)
+      // run at least one cycle (if there is time)
       was_running = 1; 
       var go = true;
 
@@ -363,6 +497,7 @@ class M {
          go && (check != 0 || getT() < f_shed_end) ) { 
 
          if (--check == -1) {
+            // schedule next check
             check = c_val;
          }
 
@@ -373,15 +508,17 @@ class M {
             // guard element reached, next cycle begins
             run_cycles++;
             
-            // check if all processes are sleeping/waiting
+            // go only if not all processes were sleeping/waiting
+            // during the last cycle
             go = was_running > 0;
 
-            // count active processes for the next cycle
+            // reset active process count for the next cycle
             was_running = 0;
 
             continue;
          }
 
+         // handle process entry
          act_p = pool[cur_lpid];
 
          switch (act_p.state) {
@@ -389,14 +526,16 @@ class M {
                // will run in next cycle
                pState(act_p, PRun);
       
-               #if DEBUG_TRACES
+               #if TTS_DEBUG_TRACES
                trace("ready", LOG_SCHED);
                #end
 
             case PRun:
+               // running
                run_current();
 
             case PSleep:
+               // sleeping
                if (getUserT() > act_p.timer) {
                   pState(act_p, PRun);
 
@@ -404,19 +543,25 @@ class M {
                }
 
             case PMWait:
+               // waiting for message
+
                p_did_refuse = false;
                var has_new_msg = act_p.mq.peek_next() != null;
 
                if (has_new_msg) {
+                  // make the process check if the
+                  // message is acceptable for it
                   pState(act_p, PRun);
                   run_current();
 
                   if (p_did_yield) {
                      if (p_did_refuse) {
+                        // not acceptable, keep waiting
                         act_p.mq.advance();
                         pState(act_p, PMWait);
                      }
                      else {
+                        // message accepted, sink it
                         act_p.mq.consume();
                      }
                   }
@@ -429,15 +574,16 @@ class M {
                      && act_p.timer != NO_TIMER 
                      && getUserT() > act_p.timer) {
                   
-                  // must wake the process with the timeout_cont,
-                  // and reset the message queue to the head
+                  // if set, wake the process with the timeout_cont
                   if (act_p.timeout_cont != null) {
                      act_p.cont = act_p.timeout_cont;
                      act_p.timeout_cont = null;
                   }
 
+                  // rewind the message queue to the head
                   act_p.mq.rewind();
                   
+                  // let it go
                   pState(act_p, PRun);
                   run_current();
                }
@@ -451,6 +597,8 @@ class M {
 
       }
       
+      // If no more processes are to be run, scheduling is over.
+      // Generally this should not happen.
       if (proc_num == 0) {
          trace("no more processes to run", LOG_SCHED);
          Lib.current.removeEventListener(Event.ENTER_FRAME, onEnterFrame);
@@ -461,6 +609,8 @@ class M {
    // ---------- USER PROCESS API -----------
    //
 
+   // Spawn a new process
+   //
    public function spawn(cobj: Dynamic, cont: ContT, ?args: Array<Dynamic>, ?name: String): PidT {
       if (args == null) {
          args = [];
@@ -471,25 +621,31 @@ class M {
 
       pState(p, PNew);
 
-      #if DEBUG_TRACES
+      #if TTS_DEBUG_TRACES
       trace("spawn " + pidString(p, lpid), LOG_SCHED);
       #end
 
-      #if ISTAT
+      #if TTS_ISTAT
       proc_spawned++;
       #end
 
       return fullPid(p.hpid, lpid);
    }
 
+   // Register a daemon
+   //
    public function registerD(reference: Int, pid: PidT) {
       daemons.set(reference, pid);
    }
 
+   // Fetch a daemon
+   //
    public function getD(reference: Int): PidT {
       return daemons.get(reference);
    }
 
+   // Make the process sleep.
+   //
    // Quite inaccurate timer, for frame-skip purposes.
    //
    // msec is offset not from the current time, but from the start of
@@ -497,6 +653,7 @@ class M {
    // after the resulting time.
    //
    // Call with msec=0 for sleeping until next frame
+   //
    public function sleep(msec: Int, ?cont: ContT, ?cargs: Array<Dynamic>) {
       pState(act_p, PSleep);
       act_p.timer = getUserT() + msec;
@@ -504,7 +661,13 @@ class M {
       yield(cont, cargs);
    }
 
-   // Return with yield() to give up control
+   // Return with yield() to give up control and continue with the
+   // current method (and arguments) next time.
+   //
+   // Can also set a new continuation using the parameters. If
+   // a new continuation is set but parameters are not, then
+   // the new continuation is called without parameters.
+   //
    public function yield(?cont: ContT, ?cargs: Array<Dynamic>) {
       // cont, cargs -> update both
       // cont -> update cont, cargs = []
@@ -527,6 +690,7 @@ class M {
    }
 
    // Convenience return function for explicit termination
+   //
    public function terminate(?exit_status: ExitStatus): Void {
       if (exit_status != null) {
          switch (exit_status) {
@@ -547,7 +711,9 @@ class M {
    //
    // "timeout" semantics is the same as "msec" of "sleep()"
    //
-   // on a reception of a new message, "cont" is called with "cargs"
+   // On a reception of a new message, "cont" is called with "cargs"
+   //
+   // cargs semantics is the same as that of yield()
    //
    public function recv(
          ?timeout: Int, 
@@ -568,7 +734,10 @@ class M {
    }
 
    // Peeks at the current message of the inbox, but
-   // does not remove it. Returns null if no message.
+   // does not remove it.
+   //
+   // Returns null if no message.
+   //
    public function peek() {
       return act_p.mq.peek_next();
    }
@@ -576,6 +745,7 @@ class M {
    // Consumes and returns the current message, and rewinds
    // the inbox. If no message is available, returns null
    // and does not rewind.
+   //
    public function consume() {
       var m = act_p.mq.peek_next();
       return if (m == null) {
@@ -588,12 +758,16 @@ class M {
    }
 
    // Clears the inbox
+   //
+   // Use it with care.
+   //
    public function flush() {
       act_p.mq.flush();
    }
 
    // Return from a message handler continuation with refuse() if
    // the received message is not the expected. Advances the inbox.
+   //
    public function refuse(): Void {
       p_did_refuse = true;
 
@@ -601,15 +775,13 @@ class M {
    }
 
    // Send a message "m" to "pid"
-   // If type(pid)=PidT: never fails
-   // If type(pid)=NameT: fails if non-existent name
-
+   //
    public function msg(pid: PidT, m: Dynamic): Void {
       var lpid = lPid(pid);
       var target = pool[lpid];
 
       if (target == null || target.cont == null || target.hpid != hPid(pid)) {
-         #if DEBUG_TRACES
+         #if TTS_DEBUG_TRACES
          trace("target " + pidStringRaw(pid) + " not exists", LOG_SCHED);
          #end
          return;
@@ -618,14 +790,21 @@ class M {
       target.mq.add(m);
    }
 
+   // Returns the pid of the current process
+   //
    public function pid(): PidT {
       return fullPid(act_p.hpid, cur_lpid);
    }
 
+   // Returns the number of processes
+   //
    public function getProcCount(): Int {
       return proc_num;
    }
 
+   // Replaces the default trace function with one
+   // prepending the current process information
+   //
    public function setTrace() {
       var old_trace = haxe.Log.trace;
       
@@ -654,7 +833,7 @@ class M {
    var proc_num: Int;
 
    // count of processes in PNew or PRun
-   // (TODO: separate CGLists for sleeping/mwaiting processes)
+   // (TODO: separate CGLists for sleeping/mwaiting processes, if it is worth it)
    var run_proc_num: Int;
 
    // currently running lpids;
@@ -692,7 +871,7 @@ class M {
    var last_f_start: Int;
    var act_f_start: Int;
 
-   // time between start if last and act frame (??? redundancy)
+   // time between start of last and act frame (??? redundancy)
    var f_delta: Int; 
 
    // time until calculations for the frame should end
@@ -712,7 +891,7 @@ class M {
    // did the actual process refuse the message?
    var p_did_refuse: Bool;
 
-   #if ISTAT
+   #if TTS_ISTAT
    // ----- internal statistics -----
 
    var frame_count: UInt;
