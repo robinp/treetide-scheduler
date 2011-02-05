@@ -51,6 +51,7 @@ enum PState {
    PRun;
    PSleep;
    PMWait;
+   PKill;
    PTerm;
 }
 
@@ -293,12 +294,10 @@ class M {
             #end
             run_proc_num--;
 
+         case PKill:
+            // pass
+
          case PTerm:
-            #if !NDEBUG
-            if (!Type.enumEq(p.state, PRun)) {
-               throw "! ~PRun -> PTerm" + getStacks();
-            }
-            #end
             proc_num--;
             run_proc_num--;
       } 
@@ -588,6 +587,9 @@ class M {
                   run_current();
                }
 
+            case PKill:
+               terminate_current();
+
             case PTerm:
                throw "! PTerm scheduled for running";
             
@@ -772,6 +774,19 @@ class M {
       p_did_refuse = true;
 
       yield(act_p.cont, act_p.cargs);
+   }
+
+   // Kills the given process - on the next scheduling, the process
+   // will be instantly terminated
+   public function kill(pid: PidT) {
+      var lpid = lPid(pid);
+      var hpid = hPid(pid);
+      
+      var p = pool[lpid];
+
+      if (p.hpid == hpid) {
+         pState(p, PKill);
+      }
    }
 
    // Send a message "m" to "pid"
